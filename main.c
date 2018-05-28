@@ -6,6 +6,7 @@
 #include <linux/kdev_t.h>
 #include <linux/cdev.h>
 #include <linux/slab.h>
+#include <linux/errno.h>
 
 #include "scull.h" 
 
@@ -66,6 +67,9 @@ int scull_open(struct inode *inode, struct file *filp)
     filp->private_data = dev; /* for other method */
 
     /* trim to 0 the length of the device if open was write only */
+    if ((filp->f_mode & O_ACCMODE) == O_WRONLY) {
+        
+    }
 }
 
 int scull_release(struct inode *inode, struct file *filp)
@@ -99,7 +103,7 @@ static void scull_setup_cdev(struct scull_dev *dev, int index)
 static int scull_init(void)
 {
     dev_t dev;
-    int result;
+    int result, i;
 
     /* Step1 : allocate device number (major number and minor number) */
     if (scull_major) {
@@ -116,8 +120,22 @@ static int scull_init(void)
     }
 
     /* Step2 : allocate and initilize device structure*/
+    scull_devices = kmalloc(scull_nr_devs * sizeof(struct scull_dev), GFP_KERNEL);
+    if (!scull_devices) {
+        result = -ENOMEM;
+        scull_exit();
+        return result;
+    }
+    memset(scull_devices, 0, scull_nr_devs * sizeof(struct scull_dev));
 
     /* Step3 : allocate cdev structure and register device structure to kernel */
+    for (i = 0; i < scull_nr_devs; i++) {
+        scull_devices[i]->quantum = scull_quantum;
+        scull_devices[i]->qset = scull_qset;
+        /* init semaphore */
+        /* implement */
+        scull_dev_setup(&scull_devices[i], i);
+    }
 
     return 0;
 }
