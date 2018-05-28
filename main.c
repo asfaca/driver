@@ -18,10 +18,64 @@ int scull_qset = SCULL_QSET;
 
 struct scull_dev *scull_devices;
 
-ssize_t scull_read(struct file *filp, char __user *buff,
-    size_t count, loff_t *offp)
+struct scull_qset* scull_follow(struct scull_dev *dev, int item)
 {
-    
+    struct scull_qset *dptr = dev->data;
+    int i;
+    for (i = 0; i < item; i++) {
+        qptr = dptr->next;
+    }
+    return dptr;
+}
+
+/* scull_read reads only quantum data. library read function
+ * continuously calls scull_read unless count which must be read
+ * is unsufficient. Check if it is correct...*/
+ssize_t scull_read(struct file *filp, char __user *buff,
+    size_t count, loff_t *f_pos)
+{
+    struct scull_dev *dev = filp->private_data;
+    struct scull_qset *dptr;
+    int quantum = dev->quantum, qset = dev->qset;
+    int itemsize = quantum * qset;
+    int item, s_pos, q_pos, rest;
+    ssize_t retval = 0;
+
+    /* read size count check */
+    if (down_interruptible(&dev->sem))
+        return -ERESTARTSYS;
+    if (*f_pos >= dev->size)
+        goto out;
+    if (*f_pos + count > dev->size)
+        count = dev->size - *f_pos;
+
+    /* find item position */
+    item = (long)*f_pos / itemsize;
+    rest = (long)*f_pos % itemsize;
+    s_pos = rest / quantum, q_pos = rest % quantum;
+
+    dptr = scll_follow(dev, item);
+
+    /* data check */
+    if (!dptr || !dptr->data || !dptr->data[s_pos])
+        goto out;
+
+    /* read only up to the end of this quantum */
+    if (q_pos + count > quantum)
+        count = quantum - q_pos;
+
+    /* copy data to userland */
+    if (copy_to_user(buff, dptr->data[s_pos] + q_pos, count)) {
+        retval = -EFAULT;
+        goto out;
+    }
+    *f_pos += count;
+    retval = count;
+
+    /* invalid access */
+    out:
+        up(&dev->sem);
+        return retval;
 }
 
 ssize_t scull_write(struct file *filp, char __user *buff,
