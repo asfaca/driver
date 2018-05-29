@@ -7,6 +7,7 @@
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <linux/errno.h>
+#include <linux/uaccess.h>
 
 #include "scull.h" 
 
@@ -23,14 +24,14 @@ struct scull_qset* scull_follow(struct scull_dev *dev, int item)
     struct scull_qset *dptr = dev->data;
     int i;
     for (i = 0; i < item; i++) {
-        qptr = dptr->next;
+        dptr = dptr->next;
     }
     return dptr;
 }
 
 /* scull_read reads only quantum data. library read function
  * continuously calls scull_read unless count which must be read
- * is unsufficient. Check if it is correct...*/
+ * is unsufficient.*/
 ssize_t scull_read(struct file *filp, char __user *buff,
     size_t count, loff_t *f_pos)
 {
@@ -54,7 +55,7 @@ ssize_t scull_read(struct file *filp, char __user *buff,
     rest = (long)*f_pos % itemsize;
     s_pos = rest / quantum, q_pos = rest % quantum;
 
-    dptr = scll_follow(dev, item);
+    dptr = scull_follow(dev, item);
 
     /* data check */
     if (!dptr || !dptr->data || !dptr->data[s_pos])
@@ -78,10 +79,36 @@ ssize_t scull_read(struct file *filp, char __user *buff,
         return retval;
 }
 
+/* write data up to single quantum */
 ssize_t scull_write(struct file *filp, char __user *buff,
-    size_t count, loff_t *offp)
+    size_t count, loff_t *f_pos)
 {
-    
+    struct scull_dev *dev = filp->private_data;
+    struct scull_qset *dptr;
+    int quantum = dev->quantum;
+    int qset = dev->qset;
+    int itemsize = quantum * qset;
+    int item, rest, s_pos, q_pos;
+    ssize_t retval = ENOMEM;
+
+    if (down_interruptible(&dev->sem)) {
+        return -ERESTARTSYS;
+    }
+
+    /* find item */
+    item = *f_pos / itemsize;
+    rest = *f_pos % itemsize;
+    s_pos = rest / quantum;
+    q_pos = rest % quantum;
+    dptr = scull_follow(dev, item);
+
+    /* data check */
+
+
+    /* write data only upto single quantum */
+    if (q_pos + count > quantum) {
+        count -= quantum - q_pos;
+    }
 }
 
 /* 
@@ -154,6 +181,12 @@ static void scull_setup_cdev(struct scull_dev *dev, int index)
         printk(KERN_NOTICE "Error : %d adding scull%d", err, index);
 }
 
+static void scull_exit(void)
+{
+    dev_t dev = MKDEV(scull_major, scull_minor);
+    unregister_chrdev_region(dev, scull_nr_devs);
+}
+
 static int scull_init(void)
 {
     dev_t dev;
@@ -184,20 +217,14 @@ static int scull_init(void)
 
     /* Step3 : allocate cdev structure and register device structure to kernel */
     for (i = 0; i < scull_nr_devs; i++) {
-        scull_devices[i]->quantum = scull_quantum;
-        scull_devices[i]->qset = scull_qset;
+        scull_devices[i].quantum = scull_quantum;
+        scull_devices[i].qset = scull_qset;
         /* init semaphore */
         /* implement */
-        scull_dev_setup(&scull_devices[i], i);
+        scull_setup_cdev(&scull_devices[i], i);
     }
 
     return 0;
-}
-
-static void scull_exit(void)
-{
-    dev_t dev = MKDEV(scull_major, scull_minor);
-    unregister_chrdev_region(dev, scull_nr_devs);
 }
 
 module_init(scull_init);
