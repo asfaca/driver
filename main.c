@@ -21,8 +21,6 @@ struct scull_dev *scull_devices;
 
 struct scull_qset* scull_follow(struct scull_dev *dev, int item)
 {
-    struct scull_qset *dptr = dev->data;
-    int i;
     for (i = 0; i < item; i++) {
         dptr = dptr->next;
     }
